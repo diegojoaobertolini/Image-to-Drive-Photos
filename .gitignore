@@ -1,0 +1,11 @@
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Chrome packaging and private keys
+*.pem
+*.crx
+
+# Editor and IDE configurations
+.vscode/
+.idea/
