@@ -70,7 +70,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       return;
     }
     const service = info.menuItemId === MENU_DRIVE_IMG ? "drive" : "photos";
-    await handleImageSave(imageUrl, service);
+    await handleImageSave(imageUrl, service, info.pageUrl || tab?.url);
     return;
   }
 
@@ -191,8 +191,9 @@ async function handleAreaCapture(area, targetService, tab) {
 
     const croppedBlob = await canvas.convertToBlob({ type: "image/png" });
 
-    // 5. Gerar nome de arquivo
-    const filename = generateFilename("image/png", null, "screenshot");
+    // 5. Gerar nome de arquivo via template
+    const settings = await getSettings();
+    const filename = buildFilenameFromTemplate(settings.filenameTemplate, "image/png", null, tab?.url, "screenshot");
 
     // 6. Obter token e enviar
     const token = await getAuthToken();
@@ -219,7 +220,7 @@ async function handleAreaCapture(area, targetService, tab) {
 /**
  * Fluxo de salvar imagem existente a partir de sua URL
  */
-async function handleImageSave(imageUrl, targetService) {
+async function handleImageSave(imageUrl, targetService, pageUrl) {
   const serviceName = targetService === "photos" ? "Google Fotos" : "Google Drive";
 
   try {
@@ -227,19 +228,25 @@ async function handleImageSave(imageUrl, targetService) {
     const token = await getAuthToken();
 
     // 2. Fazer download da imagem
-    const { blob, mimeType } = await fetchImageBlob(imageUrl);
+    const { blob, mimeType: initialMime } = await fetchImageBlob(imageUrl);
 
-    // 3. Gerar nome do arquivo
-    const filename = generateFilename(mimeType, imageUrl, "image");
+    // 3. Obter configurações do usuário
+    const settings = await getSettings();
 
-    // 4. Upload para o serviço selecionado
+    // 4. Processar imagem (conversão de formatos modernos .webp/.avif e remoção de EXIF)
+    const { blob: finalBlob, mimeType: finalMime } = await processImageBlob(blob, initialMime, settings);
+
+    // 5. Gerar nome do arquivo aplicando o template
+    const filename = buildFilenameFromTemplate(settings.filenameTemplate, finalMime, imageUrl, pageUrl, "imagem");
+
+    // 6. Upload para o serviço selecionado
     if (targetService === "photos") {
-      await uploadToPhotos(token, blob, filename, mimeType);
+      await uploadToPhotos(token, finalBlob, filename, finalMime);
     } else {
-      await uploadToDrive(token, blob, filename, mimeType);
+      await uploadToDrive(token, finalBlob, filename, finalMime);
     }
 
-    // 5. Notificação única de sucesso
+    // 7. Notificação única de sucesso
     showNotification("Upload Concluído!", `Imagem salva no ${serviceName} com sucesso!`);
     console.log(`[Image] Imagem '${filename}' enviada com sucesso para o ${serviceName}.`);
 
@@ -541,4 +548,183 @@ function generatePdfFromTab(tabId) {
     });
   });
 }
+
+/**
+ * Configurações padrão da extensão
+ */
+const DEFAULT_SETTINGS = {
+  conversionMode: "convert_modern", // "convert_modern", "always_png", "always_jpg", "none"
+  targetFormat: "image/jpeg",       // "image/jpeg", "image/png"
+  jpegQuality: 0.92,
+  stripExif: true,
+  filenameTemplate: "{data}_{hora}_{dominio}"
+};
+
+/**
+ * Carrega as preferências do usuário no chrome.storage.sync
+ */
+function getSettings() {
+  return new Promise((resolve) => {
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.sync) {
+      chrome.storage.sync.get(DEFAULT_SETTINGS, (items) => {
+        resolve(items || DEFAULT_SETTINGS);
+      });
+    } else {
+      resolve(DEFAULT_SETTINGS);
+    }
+  });
+}
+
+/**
+ * Converte formatos de imagem (ex: .webp, .avif -> .jpg/.png) e remove metadados EXIF
+ */
+async function processImageBlob(blob, initialMime, settings = DEFAULT_SETTINGS) {
+  const isModern = initialMime === "image/webp" || initialMime === "image/avif";
+  let shouldConvert = false;
+  let targetMime = initialMime;
+
+  if (settings.conversionMode === "always_png") {
+    targetMime = "image/png";
+    shouldConvert = initialMime !== "image/png" || Boolean(settings.stripExif);
+  } else if (settings.conversionMode === "always_jpg") {
+    targetMime = "image/jpeg";
+    shouldConvert = initialMime !== "image/jpeg" || Boolean(settings.stripExif);
+  } else if (settings.conversionMode === "convert_modern") {
+    if (isModern) {
+      targetMime = settings.targetFormat || "image/jpeg";
+      shouldConvert = true;
+    } else if (settings.stripExif) {
+      shouldConvert = true;
+    }
+  } else if (settings.stripExif) {
+    shouldConvert = true;
+  }
+
+  // Não necessita processamento nem conversão
+  if (!shouldConvert) {
+    return { blob, mimeType: initialMime };
+  }
+
+  try {
+    const bitmap = await createImageBitmap(blob);
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const ctx = canvas.getContext("2d");
+
+    // Preenche com branco ao converter para JPEG para evitar fundo preto em canais alfa transparentes
+    if (targetMime === "image/jpeg" || targetMime === "image/jpg") {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, bitmap.width, bitmap.height);
+    }
+
+    ctx.drawImage(bitmap, 0, 0);
+
+    const convertOptions = { type: targetMime };
+    if (targetMime === "image/jpeg" || targetMime === "image/jpg") {
+      convertOptions.quality = typeof settings.jpegQuality === "number" ? settings.jpegQuality : 0.92;
+    }
+
+    const convertedBlob = await canvas.convertToBlob(convertOptions);
+    return { blob: convertedBlob, mimeType: targetMime };
+  } catch (err) {
+    console.warn("[ProcessImage] Falha ao processar canvas/bitmap. Mantendo blob original:", err);
+    return { blob, mimeType: initialMime };
+  }
+}
+
+/**
+ * Constrói o nome do arquivo aplicando as variáveis ao template configurado
+ */
+function buildFilenameFromTemplate(template, mimeType, sourceUrl, pageUrl, defaultPrefix = "imagem") {
+  const mimeToExt = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/avif": "avif",
+    "image/svg+xml": "svg",
+    "image/bmp": "bmp",
+    "image/x-icon": "ico",
+    "application/pdf": "pdf"
+  };
+
+  let ext = mimeToExt[mimeType];
+  if (!ext && sourceUrl) {
+    try {
+      const pathname = new URL(sourceUrl).pathname;
+      const match = pathname.match(/\.([a-zA-Z0-9]+)$/);
+      if (match) {
+        ext = match[1].toLowerCase();
+      }
+    } catch (_) {}
+  }
+  if (!ext) {
+    ext = "png";
+  }
+
+  // Extrair domínio (prioriza pageUrl, depois sourceUrl)
+  let domain = "web";
+  for (const candidateUrl of [pageUrl, sourceUrl]) {
+    if (candidateUrl && typeof candidateUrl === "string" && candidateUrl.startsWith("http")) {
+      try {
+        const u = new URL(candidateUrl);
+        domain = u.hostname.replace(/^www\./, "");
+        if (domain) break;
+      } catch (_) {}
+    }
+  }
+
+  // Extrair nome original
+  let originalName = defaultPrefix;
+  if (sourceUrl && typeof sourceUrl === "string" && !sourceUrl.startsWith("data:") && !sourceUrl.startsWith("blob:")) {
+    try {
+      const pathname = new URL(sourceUrl).pathname;
+      const segments = pathname.split("/").filter(Boolean);
+      if (segments.length > 0) {
+        const last = decodeURIComponent(segments[segments.length - 1]);
+        const cleanLast = last.replace(/\.[a-zA-Z0-9]+$/, "").trim();
+        if (cleanLast) {
+          originalName = cleanLast;
+        }
+      }
+    } catch (_) {}
+  }
+
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const dataStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+  const horaStr = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const timestampStr = String(now.getTime());
+
+  const vars = {
+    data: dataStr,
+    hora: horaStr,
+    dominio: domain,
+    nome_original: originalName,
+    timestamp: timestampStr,
+    extensao: ext
+  };
+
+  let result = (template && typeof template === "string" && template.trim()) 
+    ? template.trim() 
+    : "{data}_{hora}_{dominio}";
+
+  for (const [k, v] of Object.entries(vars)) {
+    result = result.replace(new RegExp(`\\{${k}\\}`, "gi"), v || "");
+  }
+
+  // Remove placeholders desconhecidos
+  result = result.replace(/\{[a-zA-Z0-9_]+\}/g, "");
+  // Sanitiza caracteres proibidos em sistemas de arquivo
+  result = result.replace(/[\/\\?%*:|\x22<>]/g, "_");
+  // Substitui espaços por underscores e colapsa múltiplos underscores
+  result = result.replace(/\s+/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+
+  if (!result) {
+    result = `${defaultPrefix}_${timestampStr}`;
+  }
+
+  return `${result}.${ext}`;
+}
+
 

@@ -9,6 +9,10 @@ Extensão para Google Chrome (Manifest V3) que permite salvar imagens da web, ca
 - **Salvar Imagens:** Envio de imagens da web diretamente para o Google Drive ou Google Fotos com clique direito.
 - **Captura de Área (Screenshot):** Seleção retangular na tela e upload da área recortada para o Drive ou Fotos.
 - **Página em PDF:** Conversão da página ativa para PDF vetorial via motor nativo do Chrome e envio direto para o Google Drive.
+- **Conversão de Formatos:** Conversão sob demanda de formatos como .webp e .avif para .jpg ou .png com ajuste de qualidade.
+- **Proteção de Privacidade (Remoção de EXIF):** Limpeza automática de dados de localização GPS, câmera e aparelho antes do upload.
+- **Templates de Nomenclatura:** Formatação de nomes de arquivo usando variáveis dinâmicas ({data}, {hora}, {dominio}, {nome_original}).
+- **Menu Popup de Configurações:** Painel acessível na barra de ferramentas com prévia em tempo real das preferências.
 - **Notificações:** Alertas nativos do sistema na conclusão ou em caso de erro.
 
 ---

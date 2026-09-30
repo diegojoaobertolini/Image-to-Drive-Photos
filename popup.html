@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configurações - Image to Drive</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="header">
+    <img src="icons/icon32.png" alt="Logo" class="logo">
+    <div class="header-title">
+      <h1>Image to Drive & Photos</h1>
+      <span class="version">v1.2</span>
+    </div>
+  </header>
+
+  <main class="content">
+    <!-- Conversão de Formatos -->
+    <section class="section">
+      <h2 class="section-title">Conversão de Imagens</h2>
+      <label class="label" for="conversionMode">Regra de formato:</label>
+      <select id="conversionMode" class="select">
+        <option value="convert_modern">Converter .webp e .avif (Recomendado)</option>
+        <option value="always_png">Sempre converter para .png</option>
+        <option value="always_jpg">Sempre converter para .jpg</option>
+        <option value="none">Manter formato original</option>
+      </select>
+
+      <div id="targetFormatContainer" class="field-group">
+        <label class="label" for="targetFormat">Converter .webp / .avif para:</label>
+        <select id="targetFormat" class="select">
+          <option value="image/jpeg">JPG (.jpg)</option>
+          <option value="image/png">PNG (.png)</option>
+        </select>
+      </div>
+
+      <div id="qualityContainer" class="field-group">
+        <div class="slider-header">
+          <label class="label" for="jpegQuality">Qualidade JPG:</label>
+          <span id="qualityValue" class="slider-badge">92%</span>
+        </div>
+        <input type="range" id="jpegQuality" min="70" max="100" value="92" class="slider">
+      </div>
+    </section>
+
+    <!-- Privacidade / EXIF -->
+    <section class="section">
+      <h2 class="section-title">Privacidade</h2>
+      <label class="checkbox-label">
+        <input type="checkbox" id="stripExif" checked>
+        <span class="checkbox-custom"></span>
+        <div class="checkbox-text">
+          <span class="checkbox-title">Remover metadados EXIF</span>
+          <span class="checkbox-desc">Elimina localização GPS, câmera e dados do aparelho antes do upload.</span>
+        </div>
+      </label>
+    </section>
+
+    <!-- Template do Nome do Arquivo -->
+    <section class="section">
+      <h2 class="section-title">Nome dos Arquivos</h2>
+      <label class="label" for="filenameTemplate">Template do nome:</label>
+      <input type="text" id="filenameTemplate" class="input" value="{data}_{hora}_{dominio}" spellcheck="false">
+      
+      <div class="chips-container">
+        <span class="chip-hint">Inserir variável:</span>
+        <button type="button" class="chip" data-var="{data}">{data}</button>
+        <button type="button" class="chip" data-var="{hora}">{hora}</button>
+        <button type="button" class="chip" data-var="{dominio}">{dominio}</button>
+        <button type="button" class="chip" data-var="{nome_original}">{nome_original}</button>
+      </div>
+
+      <div class="preview-box">
+        <span class="preview-label">Prévia do nome gerado:</span>
+        <code id="previewFilename" class="preview-code">20260929_222340_wikipedia_org.jpg</code>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <button id="saveBtn" class="btn-primary">Salvar Configurações</button>
+    <div id="saveToast" class="toast">Configurações salvas com sucesso!</div>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
